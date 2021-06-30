@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-def spectrum(f_dd=1, f_ds=1, theta_sun=30, beta=0.2606, alpha=1.317, H_oz=0.38, WV=2.5, AM=10, RH=0.69, P=1013.25):
+def spectrum(f_dd=1, f_ds=1, theta_sun=30, beta=0.2606, alpha=1.317, H_oz=0.38, WV=2.5, AM=1, RH=60, P=1013.25):
     """Downwelling irradiance spectrum
 
     Parameters
@@ -26,7 +26,7 @@ def spectrum(f_dd=1, f_ds=1, theta_sun=30, beta=0.2606, alpha=1.317, H_oz=0.38, 
     AM : float, optional
         air mass (type 1 (typical of open-ocean aerosols) to 10 (typical of continental aerosols))
     RH : float, optional
-        relative humidity (0.46 to 0.91)
+        relative humidity (46 to 91)
     P : float, optional
         nonstandard atmospheric pressure
 
@@ -63,18 +63,21 @@ def spectrum(f_dd=1, f_ds=1, theta_sun=30, beta=0.2606, alpha=1.317, H_oz=0.38, 
     a_wv = np.array(df["a_wv"])
     wavelength = np.array(df["wavelength"])
 
-    M = 1/(math.cos(math.radians(theta_sun)) + 0.50572 * (90 + 6.07995 - theta_sun)**-1.6364)  # Kasten and Young (1989)
+    a = 0.50572
+    b = 6.07995
+    c = 1.6364
+    M = 1/(math.cos(math.radians(theta_sun)) + a * (90 + b - theta_sun)**-c)  # Kasten and Young (1989)
     M_dash = M * P/(1013.25)
     M_oz = 1.0035 / (math.cos(math.radians(theta_sun))**2 + 0.007) ** 0.5
     tau_a = beta * (wavelength/wavelength_a)**-alpha
-    omega_a = (-0.0032 * AM + 0.972) * np.exp(3.06*10**-4 * RH)
+    omega_a = (-0.0032 * AM + 0.972) * np.exp(0.000306 * RH)
 
     B_3 = math.log(1 - (-0.1417 * alpha + 0.82))
     B_1 = B_3 * (1.459 + B_3 * (0.1595 + 0.4129 * B_3))
     B_2 = B_3 * (0.0783 + B_3 * (-0.3824 - 0.5874 * B_3))
     F_a = 1 - 0.5 * np.exp(B_1 + B_2 * math.cos(math.radians(theta_sun))) * math.cos(math.radians(theta_sun))
 
-    T_r = np.exp(-M_dash/(115.6404 * wavelength ** 4 - 1.335 * wavelength ** 2))  # 2.44
+    T_r = np.exp(-M_dash/(115.6404 * (wavelength/1000) ** 4 - 1.335 * (wavelength/1000) ** 2))  # 2.44
     T_aa = np.exp(-(1 - omega_a) * tau_a * M)  # 2.45
     T_as = np.exp(-omega_a * tau_a * M)  # 2.46
     T_oz = np.exp(-a_oz * H_oz * M_oz)  # 2.47
@@ -83,12 +86,51 @@ def spectrum(f_dd=1, f_ds=1, theta_sun=30, beta=0.2606, alpha=1.317, H_oz=0.38, 
 
     E_dd = E_0 * math.cos(math.radians(theta_sun)) * T_r * T_aa * T_as * T_oz * T_o * T_wv  # 2.41
     E_dsr = 0.5 * E_0 * math.cos(math.radians(theta_sun)) * (1 - T_r**0.95) * T_aa * T_oz * T_o * T_wv  # 2.42
-    E_dsa = E_0 * math.cos(math.radians(theta_sun)) * T_r**1.5 * T_aa * T_oz * T_wv * (1 - T_as) * F_a  # 2.43
+    E_dsa = E_0 * math.cos(math.radians(theta_sun)) * T_r**1.5 * T_aa * T_oz * T_o * T_wv * (1 - T_as) * F_a  # 2.43
     E_ds = E_dsr + E_dsa
     E_d = f_dd * E_dd + f_ds * E_ds  # 2.40
-    return E_d, wavelength
+    return tau_a, T_r, T_aa, T_as, T_oz, T_o, T_wv, E_dd, E_dsr, E_dsa, E_ds, E_d, wavelength, M_dash
 
 
-E_d, wavelength = spectrum()
-plt.plot(wavelength, E_d)
+reference = {}
+for file in ['twv.FWD', 'edsa.FWD', 'taa.FWD', 'taua.FWD', 'tas.FWD', 'to2.FWD', 'to3.FWD', 'tr.FWD', 'data.FWD', 'edsr.FWD']:
+    df = pd.read_csv(file, skiprows=12, header=None, sep="\t")
+    df.columns = ["wavelength", "value", "None"]
+    reference[file] = df
+
+tau_a, T_r, T_aa, T_as, T_oz, T_o, T_wv, E_dd, E_dsr, E_dsa, E_ds, E_d, wavelength, M_dash = spectrum()
+
+fig, axs = plt.subplots(5, 2)
+axs[0, 0].plot(wavelength, tau_a, 'k-')
+axs[0, 0].plot(reference["taua.FWD"]["wavelength"], reference["taua.FWD"]["value"], 'r-')
+axs[0, 0].set_title('tau_a')
+axs[0, 1].plot(wavelength, T_r, 'k-')
+axs[0, 1].plot(reference["tr.FWD"]["wavelength"], reference["tr.FWD"]["value"], 'r-')
+axs[0, 1].set_title('T_r')
+axs[1, 0].plot(wavelength, T_aa, 'k-')
+axs[1, 0].plot(reference["taa.FWD"]["wavelength"], reference["taa.FWD"]["value"], 'r-')
+axs[1, 0].set_title('T_aa')
+axs[1, 1].plot(wavelength, T_as, 'k-')
+axs[1, 1].plot(reference["tas.FWD"]["wavelength"], reference["tas.FWD"]["value"], 'r-')
+axs[1, 1].set_title('T_as')
+axs[2, 0].plot(wavelength, T_oz, 'k-')
+axs[2, 0].plot(reference["to3.FWD"]["wavelength"], reference["to3.FWD"]["value"], 'r-')
+axs[2, 0].set_title('T_oz')
+axs[2, 1].plot(wavelength, T_o, 'k-')
+axs[2, 1].plot(reference["to2.FWD"]["wavelength"], reference["to2.FWD"]["value"], 'r-')
+axs[2, 1].set_title('T_o')
+axs[3, 0].plot(wavelength, T_wv, 'k-')
+axs[3, 0].plot(reference["twv.FWD"]["wavelength"], reference["twv.FWD"]["value"], 'r-')
+axs[3, 0].set_title('T_wv')
+axs[3, 1].plot(wavelength, E_dsr, 'k-')
+axs[3, 1].plot(reference["edsr.FWD"]["wavelength"], reference["edsr.FWD"]["value"], 'r-')
+axs[3, 1].set_title('E_dsr')
+axs[4, 0].plot(wavelength, E_dsa, 'k-')
+axs[4, 0].plot(reference["edsa.FWD"]["wavelength"], reference["edsa.FWD"]["value"], 'r-')
+axs[4, 0].set_title('E_dsa')
+axs[4, 1].plot(wavelength, E_d, 'k-')
+axs[4, 1].plot(reference["data.FWD"]["wavelength"], reference["data.FWD"]["value"], 'r-')
+axs[4, 1].set_title('E_d')
 plt.show()
+
+print(np.mean(np.array(reference["edsa.FWD"]["value"])/E_dsa[50:]))
