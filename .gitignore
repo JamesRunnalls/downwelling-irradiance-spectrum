@@ -1,1 +1,3 @@
 .idea/*
+WASI5_install/*
+__pycache__/
